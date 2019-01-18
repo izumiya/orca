@@ -1,0 +1,159 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Network
+
+Parameters:
+  ResourcePrefix:
+    Type: String
+    Default: orca
+  ImageId:
+    Type: AWS::EC2::Image::Id
+    Default: ami-0d7ed3ddb85b521a6
+  KeyPair:
+    Type: AWS::EC2::KeyPair::KeyName
+  CAPemPassPhrase:
+    Type: String
+    Default: hogehoge
+    NoEcho: true
+  ClientPemPassPhrase:
+    Type: String
+    Default: fugafuga
+    NoEcho: true
+#Mappings:
+#Conditions:
+
+Resources:
+  OpenVPNServer:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          OpenVPNServer:
+            - openvpn
+          default:
+            - ConfigSet: OpenVPNServer
+
+        openvpn:
+          packages:
+            rpm:
+              epel: https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
+            yum:
+              easy-rsa: []
+              openvpn: []
+          commands:
+            010-init-pki:
+              command: "./easyrsa init-pki"
+              cwd: /usr/share/easy-rsa/3
+            011-build-ca:
+              command: !Sub
+                |
+                ./easyrsa build-ca <<EOI
+                ${CAPemPassPhrase}
+                ${CAPemPassPhrase}
+                Easy-RSA CA
+                EOI
+              cwd: /usr/share/easy-rsa/3
+            012-gen-dh:
+              command: "./easyrsa gen-dh"
+              cwd: /usr/share/easy-rsa/3
+            013-gen-tlskey:
+              command: "openvpn --genkey --secret /etc/openvpn/ta.key"
+            014-build-server-full:
+              command: !Sub
+                |
+                ./easyrsa build-server-full server nopass <<EOI
+                ${CAPemPassPhrase}
+                EOI
+              cwd: /usr/share/easy-rsa/3
+            015-build-client-full:
+              command: !Sub
+                |
+                ./easyrsa build-client-full client nopass <<EOI
+                ${CAPemPassPhrase}
+                ${ClientPemPassPhrase}
+                ${ClientPemPassPhrase}
+                EOI
+              cwd: /usr/share/easy-rsa/3
+            020-ipv4-foward:
+              command: "sysctl -w net.ipv4.ip_forward=1"
+          files:
+            /etc/openvpn/server.conf:
+              contnt: !Sub |
+                port 443
+                proto tcp
+                dev tun
+                ca /usr/share/easy-rsa/3/pki/ca.crt
+                cert /usr/share/easy-rsa/3/pki/issued/server.crt
+                key /usr/share/easy-rsa/3/pki/private/server.key
+                dh /usr/share/easy-rsa/3/pki/dh.pem
+                server 10.8.0.0 255.255.255.0
+                ifconfig-pool-persist ipp.txt
+                push "route 10.0.0.0 255.255.255.0"
+                push "route 10.0.1.0 255.255.255.0"
+                keepalive 10 120
+                tls-auth ta.key 0
+                persist-key
+                persist-tun
+                status openvpn-status.log
+                verb 3
+                explicit-exit-notify 0
+            /etc/sysctl.d/10-ipv4_forward.conf:
+              contnt: "net.ipv4.ip_forward = 1"
+          services:
+            openvpn:
+              openvpn@server:
+                enabled: true
+                ensureRunning: true
+                packages:
+                  yum:
+                    - openvpn
+                files:
+                  - /etc/openvpn/server.conf
+
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: t2.micro
+      KeyName: !Ref KeyPair
+      InstanceInitiatedShutdownBehavior: stop
+      #IamInstanceProfile: String
+      #Monitoring: Boolean
+      NetworkInterfaces:
+        -
+          DeviceIndex: 0
+          DeleteOnTermination: false
+          NetworkInterfaceId:
+            Fn::ImportValue:
+              !Sub ${ResourcePrefix}-OpenVPNNetworkInterfaceId
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            DeleteOnTermination: true
+            VolumeType: gp2
+            VolumeSize: 10
+      #EbsOptimized: Boolean
+      SourceDestCheck: false
+      UserData:
+        Fn::Base64:
+          !Join
+            - "\n"
+            - - "#!/bin/sh -x"
+              - !Sub |
+                /opt/aws/bin/cfn-init -v \
+                  --region ${AWS::Region} \
+                  --stack ${AWS::StackName} \
+                  --resource OpenVPNServer
+                result=$?
+              - !Sub |
+                /opt/aws/bin/cfn-signal \
+                  --exit-code ${!result} \
+                  --region ${AWS::Region} \
+                  --stack ${AWS::StackName} \
+                  --resource OpenVPNServer
+      #AdditionalInfo: String
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-openvpn
+    CreationPolicy:
+      ResourceSignal:
+        Count: 1
+        Timeout: PT15M
+#Outputs:
