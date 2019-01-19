@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Network
+Description: 2 tier Network (Public(for OpenVPN) and Private )
 
 Parameters:
   ResourcePrefix:
@@ -8,15 +8,13 @@ Parameters:
   VPCCidrBlock:
     Type: String
     Default: 10.0.0.0/16
-  PublicSubnetCidrBlock:
-    Type: String
-    Default: 10.0.0.0/24
-  PrivateSubnetCidrBlock:
-    Type: String
-    Default: 10.0.1.0/24
+    Description: x.x.0.0/16
+    AllowedPattern: ^([0-9]{1,3}\.){2}0\.0\/16$
   OpenVPNClientCidrBlock:
     Type: String
     Default: 10.8.0.0/24
+    Description: x.x.x.0/24
+    AllowedPattern: ^([0-9]{1,3}\.){3}0\/24$
 #Mappings:
 #Conditions:
 
@@ -100,7 +98,7 @@ Resources:
         Fn::Select:
           - 0
           - Fn::GetAZs: !Ref AWS::Region
-      CidrBlock: !Ref PublicSubnetCidrBlock
+      CidrBlock: !Select [0, !Cidr [!Ref VPCCidrBlock, 2, 8 ]]
       #AssignIpv6AddressOnCreation: false
       #Ipv6CidrBlock: String
       MapPublicIpOnLaunch: false
@@ -208,7 +206,7 @@ Resources:
 #      NetworkAclId: !Ref PublicNetworkAcl
 #      Egress: true
 #      RuleNumber : 120
-#      CidrBlock: !Ref PrivateSubnetCidrBlock
+#      CidrBlock: !Select [1, !Cidr [!Ref VPCCidrBlock, 2, 8 ]]
 #      Protocol: 6
 #      PortRange:
 #        From: 5432 #PostgreSQL
@@ -232,7 +230,7 @@ Resources:
 #      NetworkAclId: !Ref PublicNetworkAcl
 #      Egress: true
 #      RuleNumber : 150
-#      CidrBlock: !Ref PrivateSubnetCidrBlock
+#      CidrBlock: !Select [1, !Cidr [!Ref VPCCidrBlock, 2, 8 ]]
 #      Protocol: 6
 #      PortRange:
 #        From: 22
@@ -279,7 +277,7 @@ Resources:
         Fn::Select:
           - 0
           - Fn::GetAZs: !Ref AWS::Region
-      CidrBlock: !Ref PrivateSubnetCidrBlock
+      CidrBlock: !Select [1, !Cidr [!Ref VPCCidrBlock, 2, 8 ]]
       #AssignIpv6AddressOnCreation: false
       #Ipv6CidrBlock: String
       MapPublicIpOnLaunch: false
@@ -301,7 +299,7 @@ Resources:
 #      NetworkAclId: !Ref PrivateNetworkAcl
 #      Egress: false
 #      RuleNumber : 100
-#      CidrBlock: !Ref PublicSubnetCidrBlock
+#      CidrBlock: !Select [0, !Cidr [!Ref VPCCidrBlock, 2, 8 ]]
 #      Protocol: 6
 #      PortRange:
 #        From: 5432 #PostgreSQL
@@ -325,7 +323,7 @@ Resources:
 #      NetworkAclId: !Ref PrivateNetworkAcl
 #      Egress: false
 #      RuleNumber : 130
-#      CidrBlock: !Ref PublicSubnetCidrBlock
+#      CidrBlock: !Select [0, !Cidr [!Ref VPCCidrBlock, 2, 8 ]]
 #      Protocol: 6
 #      PortRange:
 #        From: 3389
@@ -374,7 +372,7 @@ Resources:
       NetworkAclId: !Ref PrivateNetworkAcl
       Egress: true
       RuleNumber : 120
-      CidrBlock: !Ref PublicSubnetCidrBlock
+      CidrBlock: !Select [0, !Cidr [!Ref VPCCidrBlock, 2, 8 ]]
       Protocol: 6
       PortRange:
         From: 1024
@@ -432,7 +430,7 @@ Resources:
       IpProtocol: tcp
       FromPort: 443
       ToPort: 443
-  OpenVPNSecurityGroupIngressHTTPS:
+  OpenVPNSecurityGroupIngressSSH:
     Type: AWS::EC2::SecurityGroupIngress
     Properties:
       Description: ssh
@@ -476,6 +474,10 @@ Resources:
       IpProtocol: -1
 
 Outputs:
+  OpenVPNEIP:
+    Value: !Ref OpenVPNEIP
+    Export:
+      Name: !Sub ${ResourcePrefix}-OpenVPNEIP
   OpenVPNNetworkInterfaceId:
     Value: !Ref OpenVPNNetworkInterface
     Export:
@@ -484,3 +486,11 @@ Outputs:
     Value: !Ref OpenVPNClientCidrBlock
     Export:
       Name: !Sub ${ResourcePrefix}-OpenVPNClientCidrBlock
+  PublicSubnetCidrBlock:
+    Value: !Select [0, !Cidr [!Ref VPCCidrBlock, 2, 8 ]]
+    Export:
+      Name: !Sub ${ResourcePrefix}-PublicSubnetCidrBlock
+  PrivateSubnetCidrBlock:
+    Value: !Select [1, !Cidr [!Ref VPCCidrBlock, 2, 8 ]]
+    Export:
+      Name: !Sub ${ResourcePrefix}-PrivateSubnetCidrBlock

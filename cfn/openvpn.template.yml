@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Network
+Description: OpenVPN Server
 
 Parameters:
   ResourcePrefix:
@@ -8,15 +8,12 @@ Parameters:
   ImageId:
     Type: AWS::EC2::Image::Id
     Default: ami-0d7ed3ddb85b521a6
+    Description: "AMI ID for Amazon Linux 2(amzn2-ami-hvm-2.0.????????-x86_64-gp2)"
   KeyPair:
     Type: AWS::EC2::KeyPair::KeyName
   CAPemPassPhrase:
     Type: String
     Default: hogehoge
-    NoEcho: true
-  ClientPemPassPhrase:
-    Type: String
-    Default: fugafuga
     NoEcho: true
 #Mappings:
 #Conditions:
@@ -39,6 +36,56 @@ Resources:
             yum:
               easy-rsa: []
               openvpn: []
+          files:
+            /etc/openvpn/server.conf:
+              content: !Sub
+                - |
+                  port 443
+                  proto tcp
+                  dev tun
+                  ca /usr/share/easy-rsa/3/pki/ca.crt
+                  cert /usr/share/easy-rsa/3/pki/issued/server.crt
+                  key /usr/share/easy-rsa/3/pki/private/server.key
+                  dh /usr/share/easy-rsa/3/pki/dh.pem
+                  server ${OpenVPNClientBaseIp} 255.255.255.0
+                  ifconfig-pool-persist ipp.txt
+                  push "route ${PublicSubnetBaseIp} 255.255.255.0"
+                  push "route ${PrivateSubnetBaseIp} 255.255.255.0"
+                  keepalive 10 120
+                  tls-auth ta.key 0
+                  persist-key
+                  persist-tun
+                  status openvpn-status.log
+                  verb 3
+                  explicit-exit-notify 0
+                - {
+                    OpenVPNClientBaseIp: {"Fn::Select": ["0", "Fn::Split": ["/", {"Fn::ImportValue": {"Fn::Sub": "${ResourcePrefix}-OpenVPNClientCidrBlock"}}]]},
+                    PublicSubnetBaseIp: {"Fn::Select": ["0", "Fn::Split": ["/", {"Fn::ImportValue": {"Fn::Sub": "${ResourcePrefix}-PublicSubnetCidrBlock"}}]]},
+                    PrivateSubnetBaseIp: {"Fn::Select": ["0", "Fn::Split": ["/", {"Fn::ImportValue": {"Fn::Sub": "${ResourcePrefix}-PrivateSubnetCidrBlock"}}]]}
+                  }
+            /etc/sysctl.d/10-ipv4_forward.conf:
+              content: "net.ipv4.ip_forward = 1"
+            /etc/openvpn/client/client.ovpn:
+              content: !Sub
+                - |
+                  client
+                  dev tun
+                  proto tcp
+                  remote ${OpenVPNEIP} 443
+                  resolv-retry infinite
+                  nobind
+                  persist-key
+                  persist-tun
+                  ca ca.crt
+                  cert client.crt
+                  key client.key
+                  remote-cert-tls server
+                  tls-auth ta.key 1
+                  cipher AES-256-CBC
+                  verb 3
+                - {
+                    OpenVPNEIP: {"Fn::ImportValue": {"Fn::Sub": "${ResourcePrefix}-OpenVPNEIP"}}
+                  }
           commands:
             010-init-pki:
               command: "./easyrsa init-pki"
@@ -69,45 +116,25 @@ Resources:
                 |
                 ./easyrsa build-client-full client nopass <<EOI
                 ${CAPemPassPhrase}
-                ${ClientPemPassPhrase}
-                ${ClientPemPassPhrase}
                 EOI
               cwd: /usr/share/easy-rsa/3
-            020-ipv4-foward:
-              command: "sysctl -w net.ipv4.ip_forward=1"
-          files:
-            /etc/openvpn/server.conf:
-              contnt: !Sub |
-                port 443
-                proto tcp
-                dev tun
-                ca /usr/share/easy-rsa/3/pki/ca.crt
-                cert /usr/share/easy-rsa/3/pki/issued/server.crt
-                key /usr/share/easy-rsa/3/pki/private/server.key
-                dh /usr/share/easy-rsa/3/pki/dh.pem
-                server 10.8.0.0 255.255.255.0
-                ifconfig-pool-persist ipp.txt
-                push "route 10.0.0.0 255.255.255.0"
-                push "route 10.0.1.0 255.255.255.0"
-                keepalive 10 120
-                tls-auth ta.key 0
-                persist-key
-                persist-tun
-                status openvpn-status.log
-                verb 3
-                explicit-exit-notify 0
-            /etc/sysctl.d/10-ipv4_forward.conf:
-              contnt: "net.ipv4.ip_forward = 1"
-          services:
-            openvpn:
-              openvpn@server:
-                enabled: true
-                ensureRunning: true
-                packages:
-                  yum:
-                    - openvpn
-                files:
-                  - /etc/openvpn/server.conf
+            016-copy-clientset:
+              command: |
+                cp /usr/share/easy-rsa/3/pki/{ca.crt,issued/client.crt,private/client.key} ./client/
+                cp /etc/openvpn/ta.key ./client/
+                tar zcvf client.tar.gz ./client/
+              cwd: /etc/openvpn
+            020-load-ipv4-foward:
+              command: "sysctl -p"
+            030-start-openvpn:
+              command: "systemctl start openvpn@server && systemctl enable openvpn@server"
+          #services:
+          #  sysvinit:
+          #    openvpn@server:
+          #      enabled: true
+          #      ensureRunning: true
+          #      files:
+          #        - /etc/openvpn/server.conf
 
     Properties:
       ImageId: !Ref ImageId
@@ -156,4 +183,10 @@ Resources:
       ResourceSignal:
         Count: 1
         Timeout: PT15M
-#Outputs:
+Outputs:
+  OpenVPNConfigFile:
+    Value: !Sub
+      - scp -i ${KeyPair}.pem ec2-user@${OpenVPNEIP}:/etc/openvpn/client.tar.gz ./
+      - {
+          OpenVPNEIP: {"Fn::ImportValue": {"Fn::Sub": "${ResourcePrefix}-OpenVPNEIP"}}
+        }
