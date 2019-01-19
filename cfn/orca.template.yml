@@ -1,0 +1,127 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ORCA Server
+
+Parameters:
+  ResourcePrefix:
+    Type: String
+    Default: orca
+  ImageId:
+    Type: AWS::EC2::Image::Id
+    Default: ami-0e629f158a5c95a09
+    Description: AMI ID for Ubuntu Server 18.04 LTS (ubuntu/images/hvm-ssd/ubuntu-bionic-18.04-amd64-server-????????)
+  KeyPair:
+    Type: AWS::EC2::KeyPair::KeyName
+  ORMasterPassword:
+    Type: String
+    Default: hogehoge
+    NoEcho: true
+#Mappings:
+#Conditions:
+
+Resources:
+  ORCAServer:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          ORCAerver: # https://www.orca.med.or.jp/receipt/download/bionic/bionic_install_51.html
+            - pre
+            - orca
+          default:
+            - ConfigSet: ORCAerver
+        pre:
+          commands:
+            010_add_apt-key:
+              command: wget -qO - https://ftp.orca.med.or.jp/pub/ubuntu/archive.key | sudo apt-key add -
+            011_add_apt-line:
+              command: wget -qO /etc/apt/sources.list.d/jma-receipt-bionic51.list https://ftp.orca.med.or.jp/pub/ubuntu/jma-receipt-bionic51.list
+            020_apt_update:
+              command: apt update
+            021_apt_dist-upgrade:
+              command: apt dist-upgrade -y
+        orca:
+          packages:
+            apt:
+              jma-receipt: []
+          #files:
+          #  /etc/jma-receipt/:
+          #    content:
+          commands:
+            010_jma-setup:
+              command: jma-setup
+            011_reestart_jma-receipt:
+              command:
+                |
+                service jma-receipt start
+                service jma-receipt stop
+                service jma-receipt start
+            020_set_ormaster-password:
+              command: !Sub
+                |
+                sudo -u orca /usr/lib/jma-receipt/bin/passwd_store.sh <<EOI
+                ${ORMasterPassword}
+                ${ORMasterPassword}
+                EOI
+          services:
+            sysvinit:
+              jma-receipt:
+                enabled: true
+                ensureRunning: true
+              postgresql:
+                enabled: true
+                ensureRunning: true
+
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: t2.medium
+      KeyName: !Ref KeyPair
+      InstanceInitiatedShutdownBehavior: stop
+      #IamInstanceProfile: String
+      #Monitoring: Boolean
+      SubnetId:
+        Fn::ImportValue:
+          !Sub ${ResourcePrefix}-PrivateSubnetId
+      SecurityGroupIds:
+        - Fn::ImportValue:
+            !Sub ${ResourcePrefix}-BaseSecurityGroupId
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            DeleteOnTermination: true
+            VolumeType: gp2
+            VolumeSize: 10
+      #EbsOptimized: Boolean
+      #SourceDestCheck: Boolean
+      UserData:
+        Fn::Base64:
+          !Join
+            - "\n"
+            - - "#!/bin/sh -x"
+              - | # install cfn-init
+                apt update
+                apt install python-pip -y
+                pip install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
+                ln -s /root/aws-cfn-bootstrap-latest/init/ubuntu/cfn-hup /etc/init.d/cfn-hup
+              - !Sub |
+                /usr/local/bin/cfn-init -v \
+                  --region ${AWS::Region} \
+                  --stack ${AWS::StackName} \
+                  --resource ORCAServer
+                result=$?
+              - !Sub |
+                /usr/local/bin/cfn-signal \
+                  --exit-code ${!result} \
+                  --region ${AWS::Region} \
+                  --stack ${AWS::StackName} \
+                  --resource ORCAServer
+      #AdditionalInfo: String
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-orca
+    CreationPolicy:
+      ResourceSignal:
+        Count: 1
+        Timeout: PT15M
+Outputs:
+  ORCAEndpoint:
+    Value: !Sub http://${ORCAServer.PrivateIp}:8000/rpc/

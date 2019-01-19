@@ -8,7 +8,7 @@ Parameters:
   ImageId:
     Type: AWS::EC2::Image::Id
     Default: ami-0d7ed3ddb85b521a6
-    Description: "AMI ID for Amazon Linux 2(amzn2-ami-hvm-2.0.????????-x86_64-gp2)"
+    Description: AMI ID for Amazon Linux 2(amzn2-ami-hvm-2.0.????????-x86_64-gp2)
   KeyPair:
     Type: AWS::EC2::KeyPair::KeyName
   CAPemPassPhrase:
@@ -87,10 +87,10 @@ Resources:
                     OpenVPNEIP: {"Fn::ImportValue": {"Fn::Sub": "${ResourcePrefix}-OpenVPNEIP"}}
                   }
           commands:
-            010-init-pki:
+            010_init_pki:
               command: "./easyrsa init-pki"
               cwd: /usr/share/easy-rsa/3
-            011-build-ca:
+            011_build-ca:
               command: !Sub
                 |
                 ./easyrsa build-ca <<EOI
@@ -99,35 +99,36 @@ Resources:
                 Easy-RSA CA
                 EOI
               cwd: /usr/share/easy-rsa/3
-            012-gen-dh:
-              command: "./easyrsa gen-dh"
+            012_gen-dh:
+              command: ./easyrsa gen-dh
               cwd: /usr/share/easy-rsa/3
-            013-gen-tlskey:
-              command: "openvpn --genkey --secret /etc/openvpn/ta.key"
-            014-build-server-full:
+            013_build-server-full:
               command: !Sub
                 |
                 ./easyrsa build-server-full server nopass <<EOI
                 ${CAPemPassPhrase}
                 EOI
               cwd: /usr/share/easy-rsa/3
-            015-build-client-full:
+            014_build-client-full:
               command: !Sub
                 |
                 ./easyrsa build-client-full client nopass <<EOI
                 ${CAPemPassPhrase}
                 EOI
               cwd: /usr/share/easy-rsa/3
-            016-copy-clientset:
+            020_genkey_tlskey:
+              command: openvpn --genkey --secret /etc/openvpn/ta.key
+            021_copy_clientset:
               command: |
                 cp /usr/share/easy-rsa/3/pki/{ca.crt,issued/client.crt,private/client.key} ./client/
                 cp /etc/openvpn/ta.key ./client/
                 tar zcvf client.tar.gz ./client/
               cwd: /etc/openvpn
-            020-load-ipv4-foward:
-              command: "sysctl -p"
-            030-start-openvpn:
-              command: "systemctl start openvpn@server && systemctl enable openvpn@server"
+            022_start_openvpn:
+              command: systemctl start openvpn@server && systemctl enable openvpn@server
+            030_load_ipv4-foward:
+              command: sysctl -p /etc/sysctl.d/10-ipv4_forward.conf
+
           #services:
           #  sysvinit:
           #    openvpn@server:
@@ -138,7 +139,7 @@ Resources:
 
     Properties:
       ImageId: !Ref ImageId
-      InstanceType: t2.micro
+      InstanceType: t2.nano
       KeyName: !Ref KeyPair
       InstanceInitiatedShutdownBehavior: stop
       #IamInstanceProfile: String
