@@ -4,7 +4,7 @@ Description: ORCA Server
 Parameters:
   ResourcePrefix:
     Type: String
-    Default: orca
+    Default: hoge
   ImageId:
     Type: AWS::EC2::Image::Id
     Default: ami-0e629f158a5c95a09
@@ -70,7 +70,6 @@ Resources:
               postgresql:
                 enabled: true
                 ensureRunning: true
-
     Properties:
       ImageId: !Ref ImageId
       InstanceType: t2.medium
@@ -80,10 +79,10 @@ Resources:
       #Monitoring: Boolean
       SubnetId:
         Fn::ImportValue:
-          !Sub ${ResourcePrefix}-PrivateSubnetId
+          !Sub ${ResourcePrefix}-Private0SubnetId
       SecurityGroupIds:
         - Fn::ImportValue:
-            !Sub ${ResourcePrefix}-BaseSecurityGroupId
+            !Sub ${ResourcePrefix}-ORCASecurityGroupId
       BlockDeviceMappings:
         - DeviceName: /dev/sda1
           Ebs:

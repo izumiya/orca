@@ -4,7 +4,7 @@ Description: OpenVPN Server
 Parameters:
   ResourcePrefix:
     Type: String
-    Default: orca
+    Default: hoge
   ImageId:
     Type: AWS::EC2::Image::Id
     Default: ami-0d7ed3ddb85b521a6
@@ -49,8 +49,7 @@ Resources:
                   dh /usr/share/easy-rsa/3/pki/dh.pem
                   server ${OpenVPNClientBaseIp} 255.255.255.0
                   ifconfig-pool-persist ipp.txt
-                  push "route ${PublicSubnetBaseIp} 255.255.255.0"
-                  push "route ${PrivateSubnetBaseIp} 255.255.255.0"
+                  push "route ${VPCBaseIp} 255.255.0.0"
                   keepalive 10 120
                   tls-auth ta.key 0
                   persist-key
@@ -60,8 +59,7 @@ Resources:
                   explicit-exit-notify 0
                 - {
                     OpenVPNClientBaseIp: {"Fn::Select": ["0", "Fn::Split": ["/", {"Fn::ImportValue": {"Fn::Sub": "${ResourcePrefix}-OpenVPNClientCidrBlock"}}]]},
-                    PublicSubnetBaseIp: {"Fn::Select": ["0", "Fn::Split": ["/", {"Fn::ImportValue": {"Fn::Sub": "${ResourcePrefix}-PublicSubnetCidrBlock"}}]]},
-                    PrivateSubnetBaseIp: {"Fn::Select": ["0", "Fn::Split": ["/", {"Fn::ImportValue": {"Fn::Sub": "${ResourcePrefix}-PrivateSubnetCidrBlock"}}]]}
+                    VPCBaseIp: {"Fn::Select": ["0", "Fn::Split": ["/", {"Fn::ImportValue": {"Fn::Sub": "${ResourcePrefix}-VPCCidrBlock"}}]]}
                   }
             /etc/sysctl.d/10-ipv4_forward.conf:
               content: "net.ipv4.ip_forward = 1"
@@ -136,7 +134,6 @@ Resources:
           #      ensureRunning: true
           #      files:
           #        - /etc/openvpn/server.conf
-
     Properties:
       ImageId: !Ref ImageId
       InstanceType: t2.nano
