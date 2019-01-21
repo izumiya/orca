@@ -60,5 +60,10 @@ Resources:
 Outputs:
   ORCADBInstanceEndpointAddress:
     Value: !GetAtt ORCADBInstance.Endpoint.Address
+    Export:
+      Name: !Sub ${ResourcePrefix}-ORCADBInstanceEndpointAddress
+
   ORCADBInstanceEndpointPort:
     Value: !GetAtt ORCADBInstance.Endpoint.Port
+    Export:
+      Name: !Sub ${ResourcePrefix}-ORCADBInstanceEndpointPort

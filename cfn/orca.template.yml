@@ -15,6 +15,14 @@ Parameters:
     Type: String
     Default: hogehoge
     NoEcho: true
+  DBMasterUserPassword:
+    Type: String
+    Default: hogehoge
+    NoEcho: true
+  DBUserPassword:
+    Type: String
+    Default: hogehoge
+    NoEcho: true
 #Mappings:
 #Conditions:
 
@@ -43,33 +51,90 @@ Resources:
           packages:
             apt:
               jma-receipt: []
-          #files:
-          #  /etc/jma-receipt/:
-          #    content:
-          commands:
-            010_jma-setup:
-              command: jma-setup
-            011_reestart_jma-receipt:
-              command:
-                |
-                service jma-receipt start
-                service jma-receipt stop
-                service jma-receipt start
-            020_set_ormaster-password:
-              command: !Sub
-                |
-                sudo -u orca /usr/lib/jma-receipt/bin/passwd_store.sh <<EOI
-                ${ORMasterPassword}
-                ${ORMasterPassword}
-                EOI
-          services:
-            sysvinit:
-              jma-receipt:
-                enabled: true
-                ensureRunning: true
-              postgresql:
-                enabled: true
-                ensureRunning: true
+          files:
+            /home/orca/.pgpass:
+              content: !Sub
+                - |
+                  ${DB_HOST}:${DB_PORT}:*:postgres:${DBMasterUserPassword}
+                  ${DB_HOST}:${DB_PORT}:*:orca:${DBUserPassword}
+                - {
+                    DB_HOST: {"Fn::ImportValue": {"Fn::Sub": "${ResourcePrefix}-ORCADBInstanceEndpointAddress"}},
+                    DB_PORT: {"Fn::ImportValue": {"Fn::Sub": "${ResourcePrefix}-ORCADBInstanceEndpointPort"}}
+                  }
+              group: orca
+              owner: orca
+              mode: "000600"
+            /var/lib/postgresql/.pgpass:
+              content: !Sub
+                - |
+                  ${DB_HOST}:${DB_PORT}:*:postgres:${DBMasterUserPassword}
+                  ${DB_HOST}:${DB_PORT}:*:orca:${DBUserPassword}
+                - {
+                    DB_HOST: {"Fn::ImportValue": {"Fn::Sub": "${ResourcePrefix}-ORCADBInstanceEndpointAddress"}},
+                    DB_PORT: {"Fn::ImportValue": {"Fn::Sub": "${ResourcePrefix}-ORCADBInstanceEndpointPort"}}
+                  }
+              group: postgres
+              owner: postgres
+              mode: "000600"
+            /etc/jma-receipt/dbgroup.inc:
+              content: !Sub
+                - |
+                  db_group {
+                   type "PostgreSQL";
+                   port "${DB_HOST}:${DB_PORT}";
+                   name "orca";
+                   password "${DBUserPassword}";
+                  };
+                - {
+                    DB_HOST: {"Fn::ImportValue": {"Fn::Sub": "${ResourcePrefix}-ORCADBInstanceEndpointAddress"}},
+                    DB_PORT: {"Fn::ImportValue": {"Fn::Sub": "${ResourcePrefix}-ORCADBInstanceEndpointPort"}}
+                  }
+              group: orca
+              owner: orca
+            /etc/jma-receipt/db.conf:
+              content: !Sub
+                - |
+                  DBNAME="orca"
+                  DBUSER="orca"
+                  DBPASS="${DBUserPassword}"
+                  DBHOST="${DB_HOST}"
+                  DBPORT="${DB_PORT}"
+                  DBENCODING="UTF-8"
+                  PGUSER="postgres"
+                  PGPASS="${DBMasterUserPassword}"
+                  DBCONNOPTION=""
+                - {
+                    DB_HOST: {"Fn::ImportValue": {"Fn::Sub": "${ResourcePrefix}-ORCADBInstanceEndpointAddress"}},
+                    DB_PORT: {"Fn::ImportValue": {"Fn::Sub": "${ResourcePrefix}-ORCADBInstanceEndpointPort"}}
+                  }
+              group: orca
+              owner: orca
+          #commands:
+          #  000_fix-script: # fix /usr/lib/jma-receipt/init/orca-db-create.sh
+          #    command: sed xxxxx
+          #  010_jma-setup:
+          #    command: jma-setup
+          #  011_reestart_jma-receipt:
+          #    command:
+          #      |
+          #      service jma-receipt start
+          #      service jma-receipt stop
+          #      service jma-receipt start
+          #  020_set_ormaster-password:
+          #    command: !Sub
+          #      |
+          #      sudo -u orca /usr/lib/jma-receipt/bin/passwd_store.sh <<EOI
+          #      ${ORMasterPassword}
+          #      ${ORMasterPassword}
+          #      EOI
+          #services:
+          #  sysvinit:
+          #    jma-receipt:
+          #      enabled: true
+          #      ensureRunning: true
+          #    postgresql:
+          #      enabled: true
+          #      ensureRunning: true
     Properties:
       ImageId: !Ref ImageId
       InstanceType: t2.medium
