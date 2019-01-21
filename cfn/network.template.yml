@@ -15,9 +15,20 @@ Parameters:
     Default: 10.8.0.0/24
     Description: x.x.x.0/24
     AllowedPattern: ^([0-9]{1,3}\.){3}0\/24$
-#Mappings:
-#Conditions:
+  UseNatGateway:
+    Type: String
+    AllowedValues:
+      - false
+      - true
+    Default: false
 
+#Mappings:
+
+Conditions:
+  NatGateway:
+    !Equals [!Ref UseNatGateway, true]
+  NatInstance:
+    !Equals [!Ref UseNatGateway, false]
 Resources:
   VPC:
     Type: AWS::EC2::VPC
@@ -53,6 +64,7 @@ Resources:
 
   NatGateway:
     Type: AWS::EC2::NatGateway
+    Condition: NatGateway
     Properties:
       AllocationId: !GetAtt NatEIP.AllocationId
       SubnetId: !Ref PublicSubnet
@@ -60,6 +72,30 @@ Resources:
         - Key: Name
           Value: !Ref ResourcePrefix
     DependsOn: NatEIP
+
+  NatNetworkInterface:
+    Type: AWS::EC2::NetworkInterface
+    Condition: NatInstance
+    Properties:
+      Description: nat
+      GroupSet:
+        - !Ref NatSecurityGroup
+      #PrivateIpAddress: String
+      #PrivateIpAddresses:
+      #  - PrivateIpAddressSpecification
+      #SecondaryPrivateIpAddressCount: Integer
+      SourceDestCheck: false
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-nat
+
+  NatEIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Condition: NatInstance
+    Properties:
+      AllocationId: !GetAtt NatEIP.AllocationId
+      NetworkInterfaceId: !Ref NatNetworkInterface
 
   OpenVPNEIP:
     Type: AWS::EC2::EIP
@@ -70,7 +106,7 @@ Resources:
   OpenVPNNetworkInterface:
     Type: AWS::EC2::NetworkInterface
     Properties:
-      Description: openvpn server
+      Description: openvpn
       GroupSet:
         - !Ref OpenVPNSecurityGroup
       #PrivateIpAddress: String
@@ -385,7 +421,7 @@ Resources:
       CidrBlock: !Select [2, !Cidr [!Ref VPCCidrBlock, 3, 8 ]]
       Protocol: -1
       RuleAction : Allow
-          
+
   PrivateNetworkAclEntryEgress100:
     Type: AWS::EC2::NetworkAclEntry
     Properties:
@@ -452,7 +488,7 @@ Resources:
       CidrBlock: !Select [2, !Cidr [!Ref VPCCidrBlock, 3, 8 ]]
       Protocol: -1
       RuleAction : Allow
-            
+
   Private0SubnetNetworkAclAssociation:
     Type: AWS::EC2::SubnetNetworkAclAssociation
     Properties:
@@ -463,7 +499,7 @@ Resources:
     Properties:
       SubnetId: !Ref Private1Subnet
       NetworkAclId: !Ref PrivateNetworkAcl
-      
+
   PrivateRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -476,7 +512,8 @@ Resources:
     Properties:
       RouteTableId: !Ref PrivateRouteTable
       DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref NatGateway
+      NatGatewayId: !If [NatGateway, !Ref NatGateway, !Ref "AWS::NoValue"]
+      NetworkInterfaceId: !If [NatInstance, !Ref NatNetworkInterface, !Ref "AWS::NoValue"]
   PrivateRouteOpenVPN:
     Type: AWS::EC2::Route
     Properties:
@@ -494,10 +531,10 @@ Resources:
     Properties:
       RouteTableId: !Ref PrivateRouteTable
       SubnetId: !Ref Private1Subnet
-      
+
   ORCADBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
-    Properties: 
+    Properties:
       DBSubnetGroupDescription: ORCA Database SubnetGroup
       DBSubnetGroupName: !Sub ${ResourcePrefix}-orca-db
       SubnetIds:
@@ -541,7 +578,67 @@ Resources:
       GroupId: !Ref OpenVPNSecurityGroup
       CidrIp: 0.0.0.0/0
       IpProtocol: -1
-      
+
+  NatSecurityGroup: # https://docs.aws.amazon.com/ja_jp/vpc/latest/userguide/VPC_NAT_Instance.html
+    Type: AWS::EC2::SecurityGroup
+    Condition: NatInstance
+    Properties:
+      GroupName: !Sub ${ResourcePrefix}-nat
+      GroupDescription: !Sub ${ResourcePrefix}-nat
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-nat
+  NatSecurityGroupIngressHTTPS:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: NatInstance
+    Properties:
+      Description: https
+      GroupId: !Ref NatSecurityGroup
+      CidrIp: !Ref VPCCidrBlock
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+  NatSecurityGroupIngressHTTP:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: NatInstance
+    Properties:
+      Description: https
+      GroupId: !Ref NatSecurityGroup
+      CidrIp: !Ref VPCCidrBlock
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+  NatSecurityGroupIngressSSH:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: vpn ssh
+      GroupId: !Ref NatSecurityGroup
+      SourceSecurityGroupId: !Ref OpenVPNSecurityGroup
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+  NatSecurityGroupEgressHTTP:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: NatInstance
+    Properties:
+      Description: http
+      GroupId: !Ref NatSecurityGroup
+      CidrIp: 0.0.0.0/0
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+  NatSecurityGroupEgressHTTPS:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: NatInstance
+    Properties:
+      Description: https
+      GroupId: !Ref NatSecurityGroup
+      CidrIp: 0.0.0.0/0
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+
   ORCASecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -603,13 +700,13 @@ Resources:
       FromPort: 5432
       ToPort: 5432
 
-      
+
 Outputs:
   VPCCidrBlock:
     Value: !Ref VPCCidrBlock
     Export:
       Name: !Sub ${ResourcePrefix}-VPCCidrBlock
-      
+
   OpenVPNEIP:
     Value: !Ref OpenVPNEIP
     Export:
@@ -622,7 +719,13 @@ Outputs:
     Value: !Ref OpenVPNClientCidrBlock
     Export:
       Name: !Sub ${ResourcePrefix}-OpenVPNClientCidrBlock
-      
+
+  NatNetworkInterfaceId:
+    Condition: NatInstance
+    Value: !Ref NatNetworkInterface
+    Export:
+      Name: !Sub ${ResourcePrefix}-NatNetworkInterfaceId
+
   Private0SubnetId:
     Value: !Ref Private0Subnet
     Export:

@@ -1,0 +1,48 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Nat Instance
+
+Parameters:
+  ResourcePrefix:
+    Type: String
+    Default: hoge
+  ImageId:
+    Type: AWS::EC2::Image::Id
+    Default: ami-00d29e4cb217ae06b
+    Description: AMI ID for Amazon Linux Nat (amzn-ami-vpc-nat-hvm-*)
+  KeyPair:
+    Type: AWS::EC2::KeyPair::KeyName
+    
+#Mappings:
+#Conditions:
+
+Resources:
+  NatInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: t2.nano
+      KeyName: !Ref KeyPair
+      InstanceInitiatedShutdownBehavior: stop
+      #IamInstanceProfile: String
+      #Monitoring: Boolean
+      NetworkInterfaces:
+        -
+          DeviceIndex: 0
+          DeleteOnTermination: false
+          NetworkInterfaceId:
+            Fn::ImportValue:
+              !Sub ${ResourcePrefix}-NatNetworkInterfaceId
+      #BlockDeviceMappings:
+      #  - DeviceName: /dev/xvda
+      #    Ebs:
+      #      DeleteOnTermination: true
+      #      VolumeType: gp2
+      #      VolumeSize: 10
+      #EbsOptimized: Boolean
+      SourceDestCheck: false
+      #AdditionalInfo: String
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-nat
+
+#Outputs:
