@@ -34,7 +34,9 @@ Resources:
         configSets:
           ORCAerver: # https://www.orca.med.or.jp/receipt/download/bionic/bionic_install_51.html
             - pre
-            - orca
+            - install
+            - remotedb
+            - setup
           default:
             - ConfigSet: ORCAerver
         pre:
@@ -47,10 +49,11 @@ Resources:
               command: apt update
             021_apt_dist-upgrade:
               command: apt dist-upgrade -y
-        orca:
+        install:
           packages:
             apt:
               jma-receipt: []
+        remotedb:
           files:
             /home/orca/.pgpass:
               content: !Sub
@@ -109,32 +112,36 @@ Resources:
                   }
               group: orca
               owner: orca
-          #commands:
-          #  000_fix-script: # fix /usr/lib/jma-receipt/init/orca-db-create.sh
-          #    command: sed xxxxx
-          #  010_jma-setup:
-          #    command: jma-setup
-          #  011_reestart_jma-receipt:
-          #    command:
-          #      |
-          #      service jma-receipt start
-          #      service jma-receipt stop
-          #      service jma-receipt start
-          #  020_set_ormaster-password:
-          #    command: !Sub
-          #      |
-          #      sudo -u orca /usr/lib/jma-receipt/bin/passwd_store.sh <<EOI
-          #      ${ORMasterPassword}
-          #      ${ORMasterPassword}
-          #      EOI
-          #services:
-          #  sysvinit:
-          #    jma-receipt:
-          #      enabled: true
-          #      ensureRunning: true
-          #    postgresql:
-          #      enabled: true
-          #      ensureRunning: true
+          commands:
+            010_fix_jma-setup-script:
+              command: |
+                sed -i \
+                -e 's/\(\-.\)\s\+\(\${\?\(USER\|DB\)EXIST}\?\)\s/ \1 \"\2\" /g' \
+                -e 's/\(su - postgres -c "psql ${DBCONNOPTION}\) \(template1\)/\1 -U postgres \2/' \
+                -e 's/\(USEREXIST=`psql_user_\)orca/\1postgres/g' \
+                /usr/lib/jma-receipt/init/orca-db-create.sh
+        setup:
+          commands:
+            010_jma-setup:
+              command: jma-setup
+            011_reestart_jma-receipt:
+              command:
+                |
+                service jma-receipt start
+                service jma-receipt stop
+                service jma-receipt start
+            020_set_ormaster-password:
+              command: !Sub
+                |
+                sudo -u orca /usr/lib/jma-receipt/bin/passwd_store.sh <<EOI
+                ${ORMasterPassword}
+                ${ORMasterPassword}
+                EOI
+          services:
+            sysvinit:
+              jma-receipt:
+                enabled: true
+                ensureRunning: true
     Properties:
       ImageId: !Ref ImageId
       InstanceType: t2.medium
